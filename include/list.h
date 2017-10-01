@@ -18,12 +18,21 @@ typedef struct {
 	unsigned int size;
 	unsigned int type;
 	elem_t *head;
+#ifndef LIST_DISABLE_TAIL
+	elem_t *tail;
+#endif
+
 } list_t;
 
 list_t *dlist_create(void);
 void dlist_destroy(list_t **list);
 void dlist_trim(list_t **list, unsigned int n);
 void dlist_pushBack(list_t *list, int val);
+void qsdlist_pushBack(list_t *list, int val);
+void qwdlist_pushBack(list_t *list, int val);
+void pvdlist_pushBack(list_t *list, int val);
+void qdlist_popFront(list_t *list);
+void pdlist_popFront(list_t *list);
 void dlist_popFront(list_t *list);
 void dlist_pushFront(list_t *list, int val);
 int dlist_front(list_t *list);

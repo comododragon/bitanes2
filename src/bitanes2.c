@@ -96,23 +96,26 @@ int main(int argc, char *argv[]) {
 		d[s] = 0;
 		Q = dlist_create();
 
-		dlist_pushBack(Q, s);
+		//dlist_pushBack(Q, s);
+		qsdlist_pushBack(Q, s);
 
 		while(!dlist_isEmpty(Q)) {
 			v = dlist_front(Q);
-			dlist_popFront(Q);
+			//dlist_popFront(Q);
+			qdlist_popFront(Q);
 			dlist_pushFront(S, v);
 
 			for(w = 0; w < n; w++) {
 				if(graph_getEdge(graph, v, w)) {
 					if(d[w] < 0) {
-						dlist_pushBack(Q, w);
+						//dlist_pushBack(Q, w);
+						qwdlist_pushBack(Q, w);
 						d[w] = d[v] + 1;
 					}
 
 					if((d[v] + 1) == d[w]) {
 						sigma[w] = sigma[w] + sigma[v];
-						dlist_pushBack(P[w], v);
+						pvdlist_pushBack(P[w], v);
 					}
 				}
 			}
@@ -127,7 +130,8 @@ int main(int argc, char *argv[]) {
 
 			while(!dlist_isEmpty(P[w])) {
 				v = dlist_front(P[w]);
-				dlist_popFront(P[w]);
+				//dlist_popFront(P[w]);
+				pdlist_popFront(P[w]);
 
 				delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
 			}

@@ -44,6 +44,9 @@ list_t *_list_create(unsigned int type) {
 	list->size = 0;
 	list->type = type;
 	list->head = NULL;
+#ifndef LIST_DISABLE_TAIL
+	list->tail = NULL;
+#endif
 
 	return list;
 }
@@ -75,8 +78,13 @@ void _list_trim(list_t **list, unsigned int n) {
 				DEALLOC((*list)->type, tmpPointer->val);
 				free(tmpPointer);
 			}
-			else if((n - 1) == i)
+			else if((n - 1) == i) {
 				tmpPointer->next = NULL;
+#ifndef LIST_DISABLE_TAIL
+				(*list)->tail = tmpPointer;
+#endif
+			}
+
 			tmpPointer = tmpPointerNext;
 		}
 
@@ -88,6 +96,14 @@ void _list_trim(list_t **list, unsigned int n) {
 
 void _list_pushBack(list_t *list, int dval, double lfval, char *sval) {
 	if(list->head) {
+#ifndef LIST_DISABLE_TAIL
+		elem_t *tmpPointer = malloc(sizeof(elem_t));
+		tmpPointer->next = NULL;
+		ASSIGN(list->type, tmpPointer->val, dval, lfval, sval);
+
+		list->tail->next = tmpPointer;
+		list->tail = tmpPointer;
+#else
 		elem_t *tmpPointer = list->head;
 
 		while(tmpPointer->next)
@@ -96,10 +112,14 @@ void _list_pushBack(list_t *list, int dval, double lfval, char *sval) {
 		tmpPointer->next = malloc(sizeof(elem_t));
 		tmpPointer->next->next = NULL;
 		ASSIGN(list->type, tmpPointer->next->val, dval, lfval, sval);
+#endif
 	}
 	else {
 		list->head = malloc(sizeof(elem_t));
 		list->head->next = NULL;
+#ifndef LIST_DISABLE_TAIL
+		list->tail = list->head;
+#endif
 		ASSIGN(list->type, list->head->val, dval, lfval, sval);
 	}
 
@@ -113,6 +133,11 @@ void _list_popFront(list_t *list) {
 		free(list->head);
 		list->head = tmpPointer;
 		(list->size)--;
+
+#ifndef LIST_DISABLE_TAIL
+		if(!(list->size))
+			list->tail = NULL;
+#endif
 	}
 }
 
@@ -124,6 +149,11 @@ void _list_pushFront(list_t *list, int dval, double lfval, char *sval) {
 	ASSIGN(list->type, list->head->val, dval, lfval, sval);
 
 	(list->size)++;
+
+#ifndef LIST_DISABLE_TAIL
+	if(1 == list->size)
+		list->tail = list->head;
+#endif
 }
 
 elem_u _list_front(list_t *list) {
@@ -131,12 +161,16 @@ elem_u _list_front(list_t *list) {
 }
 
 elem_u _list_back(list_t *list) {
+#ifndef LIST_DISABLE_TAIL
+	return list->tail->val;
+#else
 	elem_t *tmpPointer = list->head;
 
 	while(tmpPointer->next)
 		tmpPointer = tmpPointer->next;
 
 	return tmpPointer->val;
+#endif
 }
 
 elem_u _list_get(list_t *list, unsigned int pos) {
@@ -167,10 +201,18 @@ void _list_insert(list_t *list, unsigned int pos, int dval, double lfval, char *
 			tmpCurr->next = tmpElem;
 		else
 			list->head = tmpElem;
+
+#ifndef LIST_DISABLE_TAIL
+		if(pos == list->size)
+			list->tail = tmpElem;
+#endif
 	}
 	else {
 		list->head = malloc(sizeof(elem_t));
 		list->head->next = NULL;
+#ifndef LIST_DISABLE_TAIL
+		list->tail = list->head;
+#endif
 		ASSIGN(list->type, list->head->val, dval, lfval, sval);
 	}
 
@@ -213,6 +255,33 @@ void dlist_trim(list_t **list, unsigned int n) {
 void dlist_pushBack(list_t *list, int val) {
 	_list_pushBack(list, val, -1, NULL);
 }
+
+#if 1
+void qsdlist_pushBack(list_t *list, int val) {
+	//printf("pushBack at qsdlist: %d (size %d)\n", val, list->size);
+	_list_pushBack(list, val, -1, NULL);
+}
+
+void qwdlist_pushBack(list_t *list, int val) {
+	//printf("pushBack at qwdlist: %d (size %d)\n", val, list->size);
+	_list_pushBack(list, val, -1, NULL);
+}
+
+void pvdlist_pushBack(list_t *list, int val) {
+	//printf("pushBack at pvdlist: %d (size %d)\n", val, list->size);
+	_list_pushBack(list, val, -1, NULL);
+}
+
+void qdlist_popFront(list_t *list) {
+	//printf("popFront at qdlist: %d (size %d)\n", dlist_front(list), list->size - 1);
+	_list_popFront(list);
+}
+
+void pdlist_popFront(list_t *list) {
+	//printf("popFront at pdlist: %d (size %d)\n", dlist_front(list), list->size - 1);
+	_list_popFront(list);
+}
+#endif
 
 void dlist_popFront(list_t *list) {
 	_list_popFront(list);
