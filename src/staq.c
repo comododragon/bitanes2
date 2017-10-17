@@ -9,7 +9,7 @@
 /* * version 3 of the License, or (at your option) any later version.                          * */
 /* *                                                                                           * */
 /* * liblist is distributed in the hope that it will be useful, but WITHOUT ANY                * */
-/* * WARRANTY { } without even the implied warranty of MERCHANTABILITY or FITNESS FOR A           * */
+/* * WARRANTY { } without even the implied warranty of MERCHANTABILITY or FITNESS FOR A        * */
 /* * PARTICULAR PURPOSE.  See the GNU General Public License for more details.                 * */
 /* *                                                                                           * */
 /* * You should have received a copy of the GNU General Public License along with liblist.     * */
@@ -28,11 +28,13 @@
 staq_t *dstaq_create(unsigned int size) {
 	staq_t *staq = malloc(sizeof(staq_t));
 	staq->size = size;
+	/* since the circular array has size + 1 elements (to facilitate logic when the list is full, sizeP is created */
+	staq->sizeP = size + 1;
 	staq->head = 0;
 	staq->tail = 1;
 	staq->isEmpty = true;
 	staq->isFull = false;
-	staq->data = malloc(size * sizeof(int));
+	staq->data = malloc(staq->sizeP * sizeof(int));
 	return staq;
 }
 
@@ -53,15 +55,12 @@ void dstaq_destroy(staq_t **staq) {
  */
 void dstaq_pushBack(staq_t *staq, int val) {
 	/* Push only if staq exists and it is not full */
-	if(staq && !(staq->isFull)) {
+	if(staq && (staq->head != staq->tail)) {
 		staq->data[staq->tail] = val;
-		if(staq->tail == staq->head)
-			staq->isFull = true;
-		else
-			staq->tail = (staq->tail + 1) % staq->size;
+		staq->tail = (staq->tail + 1) % staq->sizeP;
 		staq->isEmpty = false;
 	}
-	printf("PUSHBACK %p %d %d %d %d\n", staq, staq->isFull, staq->isEmpty, staq->head, staq->tail);
+	//printf("PUSHBACK %p %d %d %d %d\n", staq, staq->isFull, staq->isEmpty, staq->head, staq->tail);
 }
 
 /**
@@ -70,16 +69,12 @@ void dstaq_pushBack(staq_t *staq, int val) {
 void dstaq_popFront(staq_t *staq) {
 	/* Pop only if staq exists and it is not empty */
 	if(staq && !(staq->isEmpty)) {
-		staq->head = (staq->head + 1) % staq->size;
-
-		staq->isFull = false;
-		/* If both tail and head are the same after pop, the staq is empty */
-		if(staq->tail == staq->head) {
+		staq->head = (staq->head + 1) % staq->sizeP;
+		/* If both tail and head are next to each other after pop, the staq is empty */
+		if(((staq->head + 1) % staq->sizeP) == staq->tail)
 			staq->isEmpty = true;
-			staq->tail = (staq->tail + 1) % staq->size;
-		}
 	}
-	printf("POPFRONT %p %d %d %d %d\n", staq, staq->isFull, staq->isEmpty, staq->head, staq->tail);
+	//printf("POPFRONT %p %d %d %d %d\n", staq, staq->isFull, staq->isEmpty, staq->head, staq->tail);
 }
 
 /**
@@ -87,31 +82,28 @@ void dstaq_popFront(staq_t *staq) {
  */
 void dstaq_pushFront(staq_t *staq, int val) {
 	/* Push only if staq exists and it is not full */
-	if(staq && !(staq->isFull)) {
+	if(staq && (staq->head != staq->tail)) {
 		staq->data[staq->head] = val;
-		if(staq->tail == staq->head)
-			staq->isFull = true;
-		else
-			staq->head = (staq->head)? ((staq->head - 1) % staq->size) : (staq->size - 1);
+		staq->head = (staq->head)? ((staq->head - 1) % staq->sizeP) : (staq->sizeP - 1);
 		staq->isEmpty = false;
 	}
-	printf("PUSHFRONT %p %d %d %d %d\n", staq, staq->isFull, staq->isEmpty, staq->head, staq->tail);
+	//printf("PUSHFRONT %p %d %d %d %d\n", staq, staq->isFull, staq->isEmpty, staq->head, staq->tail);
 }
 
 /**
  * @brief Retrieves the first integer in this stack/queue.
  */
 int dstaq_front(staq_t *staq) {
-	printf("FRONT %p %d\n", staq, staq->data[(staq->head + 1) % staq->size]);
-	return staq->data[(staq->head + 1) % staq->size];
+	//printf("FRONT %p %d\n", staq, staq->data[(staq->head + 1) % staq->sizeP]);
+	return staq->data[(staq->head + 1) % staq->sizeP];
 }
 
 /**
  * @brief Retrieves the last integer in this stack/queue.
  */
 int dstaq_back(staq_t *staq) {
-	printf("BACK %p %d\n", staq, staq->data[(staq->tail)? ((staq->tail - 1) % staq->size) : (staq->size - 1)]);
-	return staq->data[(staq->tail)? ((staq->tail - 1) % staq->size) : (staq->size - 1)];
+	//printf("BACK %p %d\n", staq, staq->data[(staq->tail)? ((staq->tail - 1) % staq->sizeP) : (staq->sizeP - 1)]);
+	return staq->data[(staq->tail)? ((staq->tail - 1) % staq->sizeP) : (staq->sizeP - 1)];
 }
 
 /**

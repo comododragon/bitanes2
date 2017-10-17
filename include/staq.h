@@ -24,6 +24,8 @@
 /* Structure of the stack/queue */
 typedef struct {
 	unsigned int size;
+	/* sizeP is size + 1 */
+	unsigned int sizeP;
 	/* Head and tail pointers */
 	unsigned int head;
 	unsigned int tail;

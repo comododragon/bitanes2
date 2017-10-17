@@ -1,3 +1,23 @@
+/* ********************************************************************************************* */
+/* * Simple implementation for Brandes Betweenness Algorithm: bitanes2                         * */
+/* * Author: André Bannwart Perina                                                             * */
+/* * Algorithm: Brandes, Ulrik. "A faster algorithm for betweenness centrality."               * */
+/* *            Journal of mathematical sociology 25.2 (2001): 163-177.                        * */
+/* ********************************************************************************************* */
+/* * Copyright (c) 2017 André B. Perina                                                        * */
+/* *                                                                                           * */
+/* * bitanes2 is free software: you can redistribute it and/or modify it under the terms of    * */
+/* * the GNU General Public License as published by the Free Software Foundation, either       * */
+/* * version 3 of the License, or (at your option) any later version.                          * */
+/* *                                                                                           * */
+/* * bitanes2 is distributed in the hope that it will be useful, but WITHOUT ANY               * */
+/* * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A           * */
+/* * PARTICULAR PURPOSE.  See the GNU General Public License for more details.                 * */
+/* *                                                                                           * */
+/* * You should have received a copy of the GNU General Public License along with bitanes2.    * */
+/* * If not, see <http://www.gnu.org/licenses/>.                                               * */
+/* ********************************************************************************************* */
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,36 +25,23 @@
 
 #include "common/common.h"
 #include "graph.h"
-
-#ifdef USE_STAQ
-#include "staq.h"
-#define LIST_TYPE staq_t
-#define LIST_CREATE(size) dstaq_create(size)
-#define LIST_PUSHBACK dstaq_pushBack
-#define LIST_ISEMPTY dstaq_isEmpty
-#define LIST_FRONT dstaq_front
-#define LIST_POPFRONT dstaq_popFront
-#define LIST_PUSHFRONT dstaq_pushFront
-#define LIST_DESTROY dstaq_destroy
-#else
 #include "list.h"
-#define LIST_TYPE list_t
-#define LIST_CREATE(size) dlist_create()
-#define LIST_PUSHBACK dlist_pushBack
-#define LIST_ISEMPTY dlist_isEmpty
-#define LIST_FRONT dlist_front
-#define LIST_POPFRONT dlist_popFront
-#define LIST_PUSHFRONT dlist_pushFront
-#define LIST_DESTROY dlist_destroy
-#endif
 
 #define MAX_STR_SZ 256
 
+/**
+ * @brief Swap the extension of a file (or add it if the file has none.
+ * @param inputFilename The input filename.
+ * @param extesion The new extension, without initial dot.
+ * @return The filename with the new extension, developer should free it after use.
+ */
 char *swapOrAddExtension(char *inputFilename, char *extension) {
 	int i;
 	char *outputFilename = NULL;
 
+	/* Find for the dot in the input filename */
 	for(i = strnlen(inputFilename, MAX_STR_SZ); i >= 0; i--) {
+		/* Dot found, make swap */
 		if('.' == inputFilename[i]) {
 			outputFilename = calloc(i + strnlen(extension, MAX_STR_SZ) + 2, sizeof(char));
 			strncpy(outputFilename, inputFilename, i + 1);
@@ -43,6 +50,7 @@ char *swapOrAddExtension(char *inputFilename, char *extension) {
 		}
 	}
 
+	/* No dot found, just add the extension */
 	if(-1 == i) {
 		outputFilename = calloc(strnlen(inputFilename, MAX_STR_SZ) + strnlen(extension, MAX_STR_SZ) + 2, sizeof(char));
 		strcpy(outputFilename, inputFilename);
@@ -54,36 +62,40 @@ char *swapOrAddExtension(char *inputFilename, char *extension) {
 }
 
 int main(int argc, char *argv[]) {
+	/* Auxiliary variables */
 	int i;
 	char *inputFilename;
 	char *outputFilename = NULL;
 	FILE *inputFile = NULL;
 	FILE *outputFile = NULL;
+	/* Variables named according to the algorithm in Brandes Algorithm */
 	unsigned int n, m;
 	graph_t *graph = NULL;
 	double *cb = NULL;
 	int t, s, v, w;
-	LIST_TYPE *S = NULL;
-	LIST_TYPE **P = NULL;
+	list_t *S = NULL;
+	list_t **P = NULL;
 	int *sigma = NULL;
 	int *d = NULL;
 	double *delta = NULL;
-	LIST_TYPE *Q = NULL;
+	list_t *Q = NULL;
 #ifdef GRAPH_USE_GET_ADJACENTS
 	unsigned int noOfAdjacents;
 	int *adjacents;
 #endif
 
+	/* Check if command line arguments were passed correctly */
 	ASSERT_CALL(2 == argc, fprintf(stderr, "Usage: %s INPUTFILE\n", argv[0]));
 	inputFilename = argv[1];
 	outputFilename = swapOrAddExtension(inputFilename, "btw");
 
+	/* Open input and output files and check their existence */
 	inputFile = fopen(inputFilename, "r");
 	ASSERT_CALL(inputFile, fprintf(stderr, "Error: %s: %s\n", strerror(errno), inputFilename));
-
 	outputFile = fopen(outputFilename, "w");
 	ASSERT_CALL(outputFile, fprintf(stderr, "Error: %s: %s\n", strerror(errno), outputFilename));
 
+	/* Read file header and allocate stuff */
 	fscanf(inputFile, "%d", &n);
 	fscanf(inputFile, "%d", &m);
 	graph_create(&graph, n, m);
@@ -92,6 +104,7 @@ int main(int argc, char *argv[]) {
 	d = malloc(n * sizeof(int));
 	delta = malloc(n * sizeof(double));
 
+	/* Read edges from file */
 	unsigned int orig, dest;
 	for(i = 0; i < m; i++) {
 		fscanf(inputFile, "%d %d", &orig, &dest);
@@ -99,70 +112,62 @@ int main(int argc, char *argv[]) {
 		graph_putEdge(graph, dest, orig);
 	}
 
-#if 0
-	int j;
-	printf("%d %d\n", n, m);
-	for(i = 0; i < n; i++) {
-		for(j = 0; j < n; j++)
-			printf("%d ", graph_getEdge(graph, i, j));
-		putchar('\n');
-	}
-#endif
+	/* Beginning of Brandes Algorithm */
 
-	P = calloc(n, sizeof(LIST_TYPE *));
+	P = calloc(n, sizeof(list_t *));
 	for(s = 0; s < n; s++) {
-		S = LIST_CREATE(n);
+		S = dlist_create();
 		for(w = 0; w < n; w++)
-			P[w] = LIST_CREATE(n);
+			P[w] = dlist_create();
 		for(t = 0; t < n; t++) {
 			sigma[t] = 0;
 			d[t] = -1;
 		}
 		sigma[s] = 1;
 		d[s] = 0;
-		Q = LIST_CREATE(n);
+		Q = dlist_create();
 
-		LIST_PUSHBACK(Q, s);
+		dlist_pushBack(Q, s);
 
-		while(!LIST_ISEMPTY(Q)) {
-			v = LIST_FRONT(Q);
-			LIST_POPFRONT(Q);
-			LIST_PUSHFRONT(S, v);
+		while(!dlist_isEmpty(Q)) {
+			v = dlist_front(Q);
+			dlist_popFront(Q);
+			dlist_pushFront(S, v);
 
 #ifdef GRAPH_USE_GET_ADJACENTS
+			/* Smarter way of getting node neighbours: get all nodes w which are neighbours of v, no checking necessary */
 			adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
 			for(i = 0; i < noOfAdjacents; i++) {
 				w = adjacents[i];
-
 				{
 #else
+			/* Naive way of getting node neighbours: Get all nodes w and check which are neighbours of v */
 			for(w = 0; w < n; w++) {
 				if(graph_getEdge(graph, v, w)) {
 #endif
 					if(d[w] < 0) {
-						LIST_PUSHBACK(Q, w);
+						dlist_pushBack(Q, w);
 						d[w] = d[v] + 1;
 					}
 
 					if((d[v] + 1) == d[w]) {
 						sigma[w] = sigma[w] + sigma[v];
-						LIST_PUSHBACK(P[w], v);
+						dlist_pushBack(P[w], v);
 					}
 				}
-
 			}
 		}
 
 		for(v = 0; v < n; v++)
 			delta[v] = 0;
 
-		while(!LIST_ISEMPTY(S)) {
-			w = LIST_FRONT(S);
-			LIST_POPFRONT(S);
+		while(!dlist_isEmpty(S)) {
+			w = dlist_front(S);
+			dlist_popFront(S);
 
-			while(!LIST_ISEMPTY(P[w])) {
-				v = LIST_FRONT(P[w]);
-				LIST_POPFRONT(P[w]);
+			while(!dlist_isEmpty(P[w])) {
+				v = dlist_front(P[w]);
+				dlist_popFront(P[w]);
 
 				delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
 			}
@@ -171,16 +176,17 @@ int main(int argc, char *argv[]) {
 				cb[w] = cb[w] + delta[w];
 		}
 
-		LIST_DESTROY(&Q);
+		dlist_destroy(&Q);
 		Q = NULL;
 		for(w = 0; w < n; w++) {
-			LIST_DESTROY(&P[w]);
+			dlist_destroy(&P[w]);
 			P[w] = NULL;
 		}
-		LIST_DESTROY(&S);
+		dlist_destroy(&S);
 		S = NULL;
 	}
 
+	/* At last, print results */
 	for(v = 0; v < n; v++)
 		fprintf(outputFile, "%lf\n", cb[v] / 2.0);
 
@@ -190,7 +196,7 @@ _err:
 		free(delta);
 
 	if(Q)
-		LIST_DESTROY(&Q);
+		dlist_destroy(&Q);
 
 	if(d)
 		free(d);
@@ -201,7 +207,7 @@ _err:
 	if(P) {
 		for(i = 0; i < n; i++) {
 			if(P[i])
-				LIST_DESTROY(&P[i]);
+				dlist_destroy(&P[i]);
 		}
 
 		free(P);
