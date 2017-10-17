@@ -1,4 +1,0 @@
-Both Dijkstra’s algorithm and BFS are thus easily augmented to count
-the number of shortest paths according to this lemma. BFS takes time
-O(m), and Dijkstra’s algorithm runs in time O(m + n log n), if the priority
-queue is implemented with a Fibonacci heap (Fredman and Tarjan, 1987).

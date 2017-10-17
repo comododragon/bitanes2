@@ -5,7 +5,28 @@
 
 #include "common/common.h"
 #include "graph.h"
+
+#ifdef USE_STAQ
+#include "staq.h"
+#define LIST_TYPE staq_t
+#define LIST_CREATE(size) dstaq_create(size)
+#define LIST_PUSHBACK dstaq_pushBack
+#define LIST_ISEMPTY dstaq_isEmpty
+#define LIST_FRONT dstaq_front
+#define LIST_POPFRONT dstaq_popFront
+#define LIST_PUSHFRONT dstaq_pushFront
+#define LIST_DESTROY dstaq_destroy
+#else
 #include "list.h"
+#define LIST_TYPE list_t
+#define LIST_CREATE(size) dlist_create()
+#define LIST_PUSHBACK dlist_pushBack
+#define LIST_ISEMPTY dlist_isEmpty
+#define LIST_FRONT dlist_front
+#define LIST_POPFRONT dlist_popFront
+#define LIST_PUSHFRONT dlist_pushFront
+#define LIST_DESTROY dlist_destroy
+#endif
 
 #define MAX_STR_SZ 256
 
@@ -42,12 +63,16 @@ int main(int argc, char *argv[]) {
 	graph_t *graph = NULL;
 	double *cb = NULL;
 	int t, s, v, w;
-	list_t *S = NULL;
-	list_t **P = NULL;
+	LIST_TYPE *S = NULL;
+	LIST_TYPE **P = NULL;
 	int *sigma = NULL;
 	int *d = NULL;
 	double *delta = NULL;
-	list_t *Q = NULL;
+	LIST_TYPE *Q = NULL;
+#ifdef GRAPH_USE_GET_ADJACENTS
+	unsigned int noOfAdjacents;
+	int *adjacents;
+#endif
 
 	ASSERT_CALL(2 == argc, fprintf(stderr, "Usage: %s INPUTFILE\n", argv[0]));
 	inputFilename = argv[1];
@@ -75,6 +100,7 @@ int main(int argc, char *argv[]) {
 	}
 
 #if 0
+	int j;
 	printf("%d %d\n", n, m);
 	for(i = 0; i < n; i++) {
 		for(j = 0; j < n; j++)
@@ -83,55 +109,60 @@ int main(int argc, char *argv[]) {
 	}
 #endif
 
-	P = calloc(n, sizeof(list_t *));
+	P = calloc(n, sizeof(LIST_TYPE *));
 	for(s = 0; s < n; s++) {
-		S = dlist_create();
+		S = LIST_CREATE(n);
 		for(w = 0; w < n; w++)
-			P[w] = dlist_create();
+			P[w] = LIST_CREATE(n);
 		for(t = 0; t < n; t++) {
 			sigma[t] = 0;
 			d[t] = -1;
 		}
 		sigma[s] = 1;
 		d[s] = 0;
-		Q = dlist_create();
+		Q = LIST_CREATE(n);
 
-		//dlist_pushBack(Q, s);
-		qsdlist_pushBack(Q, s);
+		LIST_PUSHBACK(Q, s);
 
-		while(!dlist_isEmpty(Q)) {
-			v = dlist_front(Q);
-			//dlist_popFront(Q);
-			qdlist_popFront(Q);
-			dlist_pushFront(S, v);
+		while(!LIST_ISEMPTY(Q)) {
+			v = LIST_FRONT(Q);
+			LIST_POPFRONT(Q);
+			LIST_PUSHFRONT(S, v);
 
+#ifdef GRAPH_USE_GET_ADJACENTS
+			adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
+			for(i = 0; i < noOfAdjacents; i++) {
+				w = adjacents[i];
+
+				{
+#else
 			for(w = 0; w < n; w++) {
 				if(graph_getEdge(graph, v, w)) {
+#endif
 					if(d[w] < 0) {
-						//dlist_pushBack(Q, w);
-						qwdlist_pushBack(Q, w);
+						LIST_PUSHBACK(Q, w);
 						d[w] = d[v] + 1;
 					}
 
 					if((d[v] + 1) == d[w]) {
 						sigma[w] = sigma[w] + sigma[v];
-						pvdlist_pushBack(P[w], v);
+						LIST_PUSHBACK(P[w], v);
 					}
 				}
+
 			}
 		}
 
 		for(v = 0; v < n; v++)
 			delta[v] = 0;
 
-		while(!dlist_isEmpty(S)) {
-			w = dlist_front(S);
-			dlist_popFront(S);
+		while(!LIST_ISEMPTY(S)) {
+			w = LIST_FRONT(S);
+			LIST_POPFRONT(S);
 
-			while(!dlist_isEmpty(P[w])) {
-				v = dlist_front(P[w]);
-				//dlist_popFront(P[w]);
-				pdlist_popFront(P[w]);
+			while(!LIST_ISEMPTY(P[w])) {
+				v = LIST_FRONT(P[w]);
+				LIST_POPFRONT(P[w]);
 
 				delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
 			}
@@ -140,18 +171,18 @@ int main(int argc, char *argv[]) {
 				cb[w] = cb[w] + delta[w];
 		}
 
-		dlist_destroy(&Q);
+		LIST_DESTROY(&Q);
 		Q = NULL;
 		for(w = 0; w < n; w++) {
-			dlist_destroy(&P[w]);
+			LIST_DESTROY(&P[w]);
 			P[w] = NULL;
 		}
-		dlist_destroy(&S);
+		LIST_DESTROY(&S);
 		S = NULL;
 	}
 
 	for(v = 0; v < n; v++)
-		printf("cb[%d] = %lf\n", v, cb[v] / 2.0);
+		fprintf(outputFile, "%lf\n", cb[v] / 2.0);
 
 _err:
 
@@ -159,7 +190,7 @@ _err:
 		free(delta);
 
 	if(Q)
-		dlist_destroy(&Q);
+		LIST_DESTROY(&Q);
 
 	if(d)
 		free(d);
@@ -170,7 +201,7 @@ _err:
 	if(P) {
 		for(i = 0; i < n; i++) {
 			if(P[i])
-				dlist_destroy(&P[i]);
+				LIST_DESTROY(&P[i]);
 		}
 
 		free(P);
