@@ -19,6 +19,7 @@
 /* ********************************************************************************************* */
 
 #include <errno.h>
+#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +63,170 @@ char *swapOrAddExtension(char *inputFilename, char *extension) {
 }
 
 int main(int argc, char *argv[]) {
+	MPI_Init(&argc, &argv);
+	int mpiTotal, mpiRank;
+
+	/* Auxiliary variables */
+	int i;
+	int mpiChunkStart, mpiChunkStop;
+	char *inputFilename;
+	char *outputFilename = NULL;
+	FILE *inputFile = NULL;
+	FILE *outputFile = NULL;
+	unsigned int graphSizes[2];
+	graph_t *graph = NULL;
+	/* Variables named according to the algorithm in Brandes Algorithm */
+	double *cb = NULL;
+	double *cbReduced = NULL;
+	int t, s, v, w;
+	list_t *S = NULL;
+	list_t **P = NULL;
+	int *sigma = NULL;
+	int *d = NULL;
+	double *delta = NULL;
+	list_t *Q = NULL;
+	unsigned int noOfAdjacents;
+	int *adjacents;
+
+	ASSERT_CALL(MPI_SUCCESS == MPI_Comm_size(MPI_COMM_WORLD, &mpiTotal), fprintf(stderr, "Error: MPI error\n"));
+	ASSERT_CALL(MPI_SUCCESS == MPI_Comm_rank(MPI_COMM_WORLD, &mpiRank), fprintf(stderr, "Error: MPI error\n"));
+
+	if(!mpiRank) {
+		/* Check if command line arguments were passed correctly */
+		ASSERT_CALL(2 == argc, fprintf(stderr, "Usage: %s INPUTFILE\n", argv[0]));
+		inputFilename = argv[1];
+		outputFilename = swapOrAddExtension(inputFilename, "btw");
+
+		/* Open input and output files and check their existence */
+		inputFile = fopen(inputFilename, "r");
+		ASSERT_CALL(inputFile, fprintf(stderr, "Error: %s: %s\n", strerror(errno), inputFilename));
+		outputFile = fopen(outputFilename, "w");
+		ASSERT_CALL(outputFile, fprintf(stderr, "Error: %s: %s\n", strerror(errno), outputFilename));
+
+		/* Read file header and allocate stuff */
+		fscanf(inputFile, "%d", &graphSizes[0]);
+		fscanf(inputFile, "%d", &graphSizes[1]);
+
+		MPI_Bcast(graphSizes, 2, MPI_INT, 0, MPI_COMM_WORLD);
+		graph_create(&graph, graphSizes[0], graphSizes[1]);
+
+		/* Read edges from file */
+		unsigned int orig, dest;
+		for(i = 0; i < graphSizes[1]; i++) {
+			fscanf(inputFile, "%d %d", &orig, &dest);
+			// TODO: melhorar essa porra
+			MPI_Bcast(&orig, 1, MPI_INT, 0, MPI_COMM_WORLD);
+			MPI_Bcast(&dest, 1, MPI_INT, 0, MPI_COMM_WORLD);
+			graph_putEdge(graph, orig, dest);
+			graph_putEdge(graph, dest, orig);
+		}
+	}
+	else {
+		MPI_Bcast(graphSizes, 2, MPI_INT, 0, MPI_COMM_WORLD);
+		graph_create(&graph, graphSizes[0], graphSizes[1]);
+
+		/* Read edges from file */
+		unsigned int orig, dest;
+		for(i = 0; i < graphSizes[1]; i++) {
+			MPI_Bcast(&orig, 1, MPI_INT, 0, MPI_COMM_WORLD);
+			MPI_Bcast(&dest, 1, MPI_INT, 0, MPI_COMM_WORLD);
+			graph_putEdge(graph, orig, dest);
+			graph_putEdge(graph, dest, orig);
+		}
+	}
+
+	cb = calloc(graphSizes[0], sizeof(double));
+	sigma = malloc(graphSizes[0] * sizeof(int));
+	d = malloc(graphSizes[0] * sizeof(int));
+	delta = malloc(graphSizes[0] * sizeof(double));
+
+	int chunkSize = graphSizes[0] / mpiTotal;
+	int chunkSizeRem = graphSizes[0] % mpiTotal;
+	if(mpiRank < chunkSizeRem) {
+		mpiChunkStart = mpiRank * (chunkSize + 1);
+		mpiChunkStop = mpiChunkStart + chunkSize + 1;
+	}
+	else {
+		mpiChunkStart = (mpiRank * chunkSize) + chunkSizeRem;
+		mpiChunkStop = mpiChunkStart + chunkSize;
+	}
+
+	/* Beginning of Brandes Algorithm */
+
+	P = calloc(graphSizes[0], sizeof(list_t *));
+	for(s = mpiChunkStart; s < mpiChunkStop; s++) {
+		S = dlist_create();
+		for(w = 0; w < graphSizes[0]; w++)
+			P[w] = dlist_create();
+		for(t = 0; t < graphSizes[0]; t++) {
+			sigma[t] = 0;
+			d[t] = -1;
+		}
+		sigma[s] = 1;
+		d[s] = 0;
+		Q = dlist_create();
+
+		dlist_pushBack(Q, s);
+
+		while(!dlist_isEmpty(Q)) {
+			v = dlist_front(Q);
+			dlist_popFront(Q);
+			dlist_pushFront(S, v);
+
+			/* Smarter way of getting node neighbours: get all nodes w which are neighbours of v, no checking necessary */
+			adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
+			for(i = 0; i < noOfAdjacents; i++) {
+				w = adjacents[i];
+				if(d[w] < 0) {
+					dlist_pushBack(Q, w);
+					d[w] = d[v] + 1;
+				}
+
+				if((d[v] + 1) == d[w]) {
+					sigma[w] = sigma[w] + sigma[v];
+					dlist_pushBack(P[w], v);
+				}
+			}
+		}
+
+		for(v = 0; v < graphSizes[0]; v++)
+			delta[v] = 0;
+
+		while(!dlist_isEmpty(S)) {
+			w = dlist_front(S);
+			dlist_popFront(S);
+
+			while(!dlist_isEmpty(P[w])) {
+				v = dlist_front(P[w]);
+				dlist_popFront(P[w]);
+
+				delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
+			}
+
+			if(w != s)
+				cb[w] = cb[w] + delta[w];
+		}
+
+		dlist_destroy(&Q);
+		Q = NULL;
+		for(w = 0; w < graphSizes[0]; w++) {
+			dlist_destroy(&P[w]);
+			P[w] = NULL;
+		}
+		dlist_destroy(&S);
+		S = NULL;
+	}
+
+	cbReduced = malloc(graphSizes[0] * sizeof(double));
+	MPI_Reduce(cb, cbReduced, graphSizes[0], MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+	if(!mpiRank) {
+		int ii;
+		for(ii = 0; ii < graphSizes[0]; ii++)
+			printf("cb[%d] = %lf\n", ii, cbReduced[ii] / 2.0);
+	}
+
+#if 0
 	/* Auxiliary variables */
 	int i;
 	char *inputFilename;
@@ -79,10 +244,8 @@ int main(int argc, char *argv[]) {
 	int *d = NULL;
 	double *delta = NULL;
 	list_t *Q = NULL;
-#ifdef GRAPH_USE_GET_ADJACENTS
 	unsigned int noOfAdjacents;
 	int *adjacents;
-#endif
 
 	/* Check if command line arguments were passed correctly */
 	ASSERT_CALL(2 == argc, fprintf(stderr, "Usage: %s INPUTFILE\n", argv[0]));
@@ -134,26 +297,18 @@ int main(int argc, char *argv[]) {
 			dlist_popFront(Q);
 			dlist_pushFront(S, v);
 
-#ifdef GRAPH_USE_GET_ADJACENTS
 			/* Smarter way of getting node neighbours: get all nodes w which are neighbours of v, no checking necessary */
 			adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
 			for(i = 0; i < noOfAdjacents; i++) {
 				w = adjacents[i];
-				{
-#else
-			/* Naive way of getting node neighbours: Get all nodes w and check which are neighbours of v */
-			for(w = 0; w < n; w++) {
-				if(graph_getEdge(graph, v, w)) {
-#endif
-					if(d[w] < 0) {
-						dlist_pushBack(Q, w);
-						d[w] = d[v] + 1;
-					}
+				if(d[w] < 0) {
+					dlist_pushBack(Q, w);
+					d[w] = d[v] + 1;
+				}
 
-					if((d[v] + 1) == d[w]) {
-						sigma[w] = sigma[w] + sigma[v];
-						dlist_pushBack(P[w], v);
-					}
+				if((d[v] + 1) == d[w]) {
+					sigma[w] = sigma[w] + sigma[v];
+					dlist_pushBack(P[w], v);
 				}
 			}
 		}
@@ -189,6 +344,7 @@ int main(int argc, char *argv[]) {
 	/* At last, print results */
 	for(v = 0; v < n; v++)
 		fprintf(outputFile, "%lf\n", cb[v] / 2.0);
+#endif
 
 _err:
 
@@ -205,13 +361,16 @@ _err:
 		free(sigma);
 
 	if(P) {
-		for(i = 0; i < n; i++) {
+		for(i = 0; i < graphSizes[0]; i++) {
 			if(P[i])
 				dlist_destroy(&P[i]);
 		}
 
 		free(P);
 	}
+
+	if(cbReduced)
+		free(cbReduced);
 
 	if(cb)
 		free(cb);
@@ -227,6 +386,8 @@ _err:
 
 	if(outputFilename)
 		free(outputFilename);
+
+	MPI_Finalize();
 
 	return EXIT_SUCCESS;
 }
