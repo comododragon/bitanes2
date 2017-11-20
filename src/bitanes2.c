@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 
 #include "common/common.h"
 #include "graph.h"
@@ -87,10 +88,12 @@ int main(int argc, char *argv[]) {
 	list_t *Q = NULL;
 	unsigned int noOfAdjacents;
 	int *adjacents;
+	struct timeval then[3], now[3];
 
 	ASSERT_CALL(MPI_SUCCESS == MPI_Comm_size(MPI_COMM_WORLD, &mpiTotal), fprintf(stderr, "Error: MPI error\n"));
 	ASSERT_CALL(MPI_SUCCESS == MPI_Comm_rank(MPI_COMM_WORLD, &mpiRank), fprintf(stderr, "Error: MPI error\n"));
 
+	gettimeofday(&then[0], NULL);
 	if(!mpiRank) {
 		/* Check if command line arguments were passed correctly */
 		ASSERT_CALL(2 == argc, fprintf(stderr, "Usage: %s INPUTFILE\n", argv[0]));
@@ -150,9 +153,11 @@ int main(int argc, char *argv[]) {
 		mpiChunkStart = (mpiRank * chunkSize) + chunkSizeRem;
 		mpiChunkStop = mpiChunkStart + chunkSize;
 	}
+	gettimeofday(&now[0], NULL);
 
 	/* Beginning of Brandes Algorithm */
 
+	gettimeofday(&then[1], NULL);
 	P = calloc(graphSizes[0], sizeof(list_t *));
 	for(s = mpiChunkStart; s < mpiChunkStop; s++) {
 		S = dlist_create();
@@ -216,15 +221,27 @@ int main(int argc, char *argv[]) {
 		dlist_destroy(&S);
 		S = NULL;
 	}
+	gettimeofday(&now[1], NULL);
 
+	gettimeofday(&then[2], NULL);
 	cbReduced = malloc(graphSizes[0] * sizeof(double));
 	MPI_Reduce(cb, cbReduced, graphSizes[0], MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	gettimeofday(&now[2], NULL);
 
+#if 0
 	if(!mpiRank) {
 		int ii;
 		for(ii = 0; ii < graphSizes[0]; ii++)
 			printf("cb[%d] = %lf\n", ii, cbReduced[ii] / 2.0);
 	}
+#endif
+
+	printf("Process %d t0: %ld t1: %ld t2: %ld\n",
+		mpiRank,
+		((now[0].tv_sec - then[0].tv_sec) * 1000000) + (now[0].tv_usec - then[0].tv_usec),
+		((now[1].tv_sec - then[1].tv_sec) * 1000000) + (now[1].tv_usec - then[1].tv_usec),
+		((now[2].tv_sec - then[2].tv_sec) * 1000000) + (now[2].tv_usec - then[2].tv_usec)
+	);
 
 #if 0
 	/* Auxiliary variables */
