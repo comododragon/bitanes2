@@ -23,10 +23,8 @@
 typedef struct {
 	/* Number of nodes in the graph */
 	int n;
-#ifndef GRAPH_USE_ADJ_MATRIX
 	/* Chunk size used for reallocating adjacency lists */
 	int chunkSz;
-#endif
 	/* Adjacency matrix or adjacency list */
 	int **adj;
 } graph_t;
@@ -56,7 +54,6 @@ void graph_putEdge(graph_t *graph, unsigned int orig, unsigned int dest);
  */
 int graph_getEdge(graph_t *graph, unsigned int orig, unsigned int dest);
 
-#ifndef GRAPH_USE_ADJ_MATRIX
 /**
  * @brief Get the adjacency list for a given node.
  * @param graph Pointer to a graph_t structure.
@@ -67,7 +64,6 @@ int graph_getEdge(graph_t *graph, unsigned int orig, unsigned int dest);
  * @note This function only exists if adjacency matrix mode is not used (GRAPH_USE_ADJ_MATRIX macro not set).
  */
 int *graph_getAdjacents(graph_t *graph, unsigned int orig, unsigned int *noOfAdjacents);
-#endif
 
 /**
  * @brief Destroy a graph; free memory.

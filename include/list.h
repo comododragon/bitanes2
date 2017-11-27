@@ -41,9 +41,7 @@ typedef struct {
 	unsigned int type;
 	/* Head and tail (may be deactivated) pointers. Tail pointer is useful in queues */
 	elem_t *head;
-#ifndef LIST_DISABLE_TAIL
 	elem_t *tail;
-#endif
 } list_t;
 
 /* ********************************************************************************************* */

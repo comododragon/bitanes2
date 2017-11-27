@@ -19,6 +19,7 @@
 /* ********************************************************************************************* */
 
 #include <errno.h>
+#include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -66,28 +67,20 @@ int main(int argc, char *argv[]) {
 	int i;
 	char *inputFilename;
 	char *outputFilename = NULL;
+	int numThreads = omp_get_num_procs();
 	FILE *inputFile = NULL;
 	FILE *outputFile = NULL;
 	/* Variables named according to the algorithm in Brandes Algorithm */
 	unsigned int n, m;
 	graph_t *graph = NULL;
 	double *cb = NULL;
-	int t, s, v, w;
-	list_t *S = NULL;
-	list_t **P = NULL;
-	int *sigma = NULL;
-	int *d = NULL;
-	double *delta = NULL;
-	list_t *Q = NULL;
-#ifdef GRAPH_USE_GET_ADJACENTS
-	unsigned int noOfAdjacents;
-	int *adjacents;
-#endif
 
 	/* Check if command line arguments were passed correctly */
-	ASSERT_CALL(2 == argc, fprintf(stderr, "Usage: %s INPUTFILE\n", argv[0]));
+	ASSERT_CALL((2 == argc) || (3 == argc), fprintf(stderr, "Usage: %s INPUTFILE [NUMTHREADS]\n", argv[0]));
 	inputFilename = argv[1];
 	outputFilename = swapOrAddExtension(inputFilename, "btw");
+	if(3 == argc)
+		numThreads = atoi(argv[2]);
 
 	/* Open input and output files and check their existence */
 	inputFile = fopen(inputFilename, "r");
@@ -100,9 +93,6 @@ int main(int argc, char *argv[]) {
 	fscanf(inputFile, "%d", &m);
 	graph_create(&graph, n, m);
 	cb = calloc(n, sizeof(double));
-	sigma = malloc(n * sizeof(int));
-	d = malloc(n * sizeof(int));
-	delta = malloc(n * sizeof(double));
 
 	/* Read edges from file */
 	unsigned int orig, dest;
@@ -114,104 +104,104 @@ int main(int argc, char *argv[]) {
 
 	/* Beginning of Brandes Algorithm */
 
-	P = calloc(n, sizeof(list_t *));
-	for(s = 0; s < n; s++) {
-		S = dlist_create();
-		for(w = 0; w < n; w++)
-			P[w] = dlist_create();
-		for(t = 0; t < n; t++) {
-			sigma[t] = 0;
-			d[t] = -1;
-		}
-		sigma[s] = 1;
-		d[s] = 0;
-		Q = dlist_create();
+#pragma omp parallel default(none) private(i) shared(n, graph, cb) num_threads(numThreads)
+	{
+		int t, s, v, w;
+		int *sigma = malloc(n * sizeof(int));
+		int *d = malloc(n * sizeof(int));
+		double *delta = malloc(n * sizeof(double));
+		list_t *S = NULL;
+		list_t *Q = NULL;
+		unsigned int noOfAdjacents;
+		int *adjacents;
 
-		dlist_pushBack(Q, s);
-
-		while(!dlist_isEmpty(Q)) {
-			v = dlist_front(Q);
-			dlist_popFront(Q);
-			dlist_pushFront(S, v);
-
-#ifdef GRAPH_USE_GET_ADJACENTS
-			/* Smarter way of getting node neighbours: get all nodes w which are neighbours of v, no checking necessary */
-			adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
-			for(i = 0; i < noOfAdjacents; i++) {
-				w = adjacents[i];
-				{
-#else
-			/* Naive way of getting node neighbours: Get all nodes w and check which are neighbours of v */
-			for(w = 0; w < n; w++) {
-				if(graph_getEdge(graph, v, w)) {
-#endif
+		list_t **P = calloc(n, sizeof(list_t *));
+#pragma omp for
+		for(s = 0; s < n; s++) {
+			S = dlist_create();
+			for(w = 0; w < n; w++)
+				P[w] = dlist_create();
+			for(t = 0; t < n; t++) {
+				sigma[t] = 0;
+				d[t] = -1;
+			}
+			sigma[s] = 1;
+			d[s] = 0;
+			Q = dlist_create();
+	
+			dlist_pushBack(Q, s);
+	
+			while(!dlist_isEmpty(Q)) {
+				v = dlist_front(Q);
+				dlist_popFront(Q);
+				dlist_pushFront(S, v);
+	
+				/* Smarter way of getting node neighbours: get all nodes w which are neighbours of v, no checking necessary */
+				adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
+				for(i = 0; i < noOfAdjacents; i++) {
+					w = adjacents[i];
 					if(d[w] < 0) {
 						dlist_pushBack(Q, w);
 						d[w] = d[v] + 1;
 					}
-
+	
 					if((d[v] + 1) == d[w]) {
 						sigma[w] = sigma[w] + sigma[v];
 						dlist_pushBack(P[w], v);
 					}
 				}
 			}
-		}
-
-		for(v = 0; v < n; v++)
-			delta[v] = 0;
-
-		while(!dlist_isEmpty(S)) {
-			w = dlist_front(S);
-			dlist_popFront(S);
-
-			while(!dlist_isEmpty(P[w])) {
-				v = dlist_front(P[w]);
-				dlist_popFront(P[w]);
-
-				delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
+	
+			for(v = 0; v < n; v++)
+				delta[v] = 0;
+	
+			while(!dlist_isEmpty(S)) {
+				w = dlist_front(S);
+				dlist_popFront(S);
+	
+				while(!dlist_isEmpty(P[w])) {
+					v = dlist_front(P[w]);
+					dlist_popFront(P[w]);
+	
+					delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
+				}
+	
+				if(w != s) {
+#pragma omp atomic
+					cb[w] = cb[w] + delta[w];
+				}
 			}
-
-			if(w != s)
-				cb[w] = cb[w] + delta[w];
+	
+			dlist_destroy(&Q);
+			Q = NULL;
+			for(w = 0; w < n; w++) {
+				dlist_destroy(&P[w]);
+				P[w] = NULL;
+			}
+			dlist_destroy(&S);
+			S = NULL;
 		}
 
-		dlist_destroy(&Q);
-		Q = NULL;
-		for(w = 0; w < n; w++) {
-			dlist_destroy(&P[w]);
-			P[w] = NULL;
+		if(P) {
+			for(i = 0; i < n; i++) {
+				if(P[i])
+					dlist_destroy(&P[i]);
+			}
+			free(P);
 		}
-		dlist_destroy(&S);
-		S = NULL;
+		if(delta)
+			free(delta);
+		if(d)
+			free(d);
+		if(sigma)
+			free(sigma);
 	}
 
 	/* At last, print results */
-	for(v = 0; v < n; v++)
-		fprintf(outputFile, "%lf\n", cb[v] / 2.0);
+	for(i = 0; i < n; i++)
+		fprintf(outputFile, "%lf\n", cb[i] / 2.0);
 
 _err:
-
-	if(delta)
-		free(delta);
-
-	if(Q)
-		dlist_destroy(&Q);
-
-	if(d)
-		free(d);
-
-	if(sigma)
-		free(sigma);
-
-	if(P) {
-		for(i = 0; i < n; i++) {
-			if(P[i])
-				dlist_destroy(&P[i]);
-		}
-
-		free(P);
-	}
 
 	if(cb)
 		free(cb);
