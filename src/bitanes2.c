@@ -116,7 +116,7 @@ int main(int argc, char *argv[]) {
 		int *adjacents;
 
 		list_t **P = calloc(n, sizeof(list_t *));
-#pragma omp for
+#pragma omp for schedule(dynamic)
 		for(s = 0; s < n; s++) {
 			S = dlist_create();
 			for(w = 0; w < n; w++)
@@ -168,7 +168,7 @@ int main(int argc, char *argv[]) {
 	
 				if(w != s) {
 #pragma omp atomic
-					cb[w] = cb[w] + delta[w];
+					cb[w] += delta[w];
 				}
 			}
 	
