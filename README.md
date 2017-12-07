@@ -94,15 +94,15 @@ All executions were performed on a Intel Xeon E5-1607. The sequential version (m
 
 * Sequential
 	* ***Execution times:***
-		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):***
-		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):***
-* MPI Standard (XXX nodes)
+		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):*** 2.535 s
+		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):*** 61.4 s
+* MPI Standard (4 nodes)
 	* ***Execution times:***
-		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):***
-		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):***
+		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):*** 1.223 s
+		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):*** 33.952 s
 	* ***Speedup:***
-		* ***Large graph 1:***
-		* ***Large graph 2:***
+		* ***Large graph 1:*** 2.07x
+		* ***Large graph 2:*** 1.81x
 * MPI Master-Slave (XXX nodes)
 	* ***Execution times:***
 		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):***
