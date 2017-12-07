@@ -1,4 +1,4 @@
-# Bitanes2
+# Bitanes2 - MPI Version
 
 ## Author
 
@@ -8,7 +8,7 @@
 
 ## Introduction
 
-This is a simple sequential implementation of the betweenness centrality algorithm developed by Brandes. It was developed as a coursework for the "Parallel Programming Introduction" module offered at the University of São Paulo - Brazil.
+This is a simple MPI implementation of the betweenness centrality algorithm developed by Brandes. It was developed as a coursework for the "Parallel Programming Introduction" module offered at the University of São Paulo - Brazil.
 
 ## Licence
 
@@ -18,28 +18,41 @@ GNU General Public Licence (see LICENSE file).
 
 * Usual GNU C compiler and runtime:
 	* GNU C Compiler (gcc, tested with version 7.1.1 20170630);
-	* GNU C Library (glibc, tested with version 2.25).
+	* GNU C Library (glibc, tested with version 2.25);
+* A working installation of MPI (e.g. OpenMPI).
 
 ## How to Download and Execute
 
 1. Clone repo, access folder and download submodules:
 
 ```
-git clone https://github.com/comododragon/bitanes2.git
+git clone -b mpi https://github.com/comododragon/bitanes2.git
 cd bitanes2
 git submodule update --init --recursive
 ```
 
-2. Compile using ```make``` (see ***Description of Compiling Options*** for compiling settings):
+2. (a) Compile using ```make``` (see ***Description of Compiling Options*** for compiling settings):
 
 ```
 make bin/bitanes2
 ```
 
-3. Execute, passing as argument the input graph, e.g.:
+2. (b) If you want to compile the master-slave version (see ***MPI Versions***):
 
 ```
-./bin/bitanes2 data/small/er_20_4_03.net
+make bin/bitanes2b
+```
+
+3. (a) Execute using ```mpirun```, passing as argument the number of MPI nodes and the input graph, e.g.:
+
+```
+mpirun -np 8 ./bin/bitanes2 data/small/er_20_4_03.net
+```
+
+3. (b) For the master-slave version, execute using ```mpirun```, passing as argument the number of MPI nodes (must be at least 2) and the input graph, e.g.:
+
+```
+mpirun -np 8 ./bin/bitanes2b data/small/er_20_4_03.net
 ```
 
 4. The results will be available in the same folder as the input file, with the extension ```.btw``` (e.g. ```data/small/er_20_4_03.btw```)
@@ -48,136 +61,55 @@ make bin/bitanes2
 
 The Makefile provided with this project has some compilation options:
 
-```make bin/bitanes2 DEBUG=yes GPROF=yes GCOV=yes OPTLEVEL=x```
+```make bin/bitanes2 DEBUG=yes GPROF=yes GCOV=yes```
 
 where:
 
 * ```DEBUG=yes```: Activate debug flag ```-g```;
 * ```GPROF=yes```: Activate flags for profiling with ```gprof```;
 * ```GCOV=yes```: Activate flags for coverage test with ```gcov```;
-* ```OPTLEVEL=x```: Choose optimisation level of the algorithm (not to be confused with ```-O2``` or ```-O3```, see ***Description of Optimisation Levels***):
-	* ```OPTLEVEL=0```: Adjacency matrix is used; Linked queues and FIFOs have no tail pointer;
-	* ```OPTLEVEL=1```: Adjacency matrix is used;
-	* ```OPTLEVEL=2```: Adjacency list is used; A list of neighbour nodes is retrieved instead of an adjacency line for all nodes.
 
 ***If one wants to change the options after compiling once, run*** ```make clean``` ***first.***
 
-## Description of Optimisation Levels
+## MPI Versions
 
-Throughout the development, several optimisations were made to improve performance. Three levels were maintained for educational purposes:
+There are two available versions using MPI:
 
-* ***Level 0***:
-	* Adjacency matrix is used, which is not recommended for sparse graphs. In line 12 from the original algorithm, we have ```foreach neighbor w of v do```, i.e. the whole line ```v``` of the adjacency matrix will be tested to see if each element ```w``` is a neighbour or not:
-		```
-		for(w = 0; w < n; w++) {
-			if(graph_getEdge(graph, v, w)) {
-				/* Hit */
-			}
-			/* Else: miss */
-		}
-		```
-		For sparse graphs, this will lead to several misses (not neighbours), leading also to increased redundancy.
-	* Linked queues and FIFOs have no tail pointer. Without tail pointers in linked lists, the whole list must be iterated to access the tail of it (e.g. for queue/FIFO pushback);
-* ***Level 1***:
-	* Adjacency matrix is used;
-	* Linked queues and FIFOs HAVE tail pointer;
-* ***Level 2***:
-	* Adjacency list is used, which is more suitable for sparse graphs;
-	* Since each line ```v``` of the adjacency list contains all neighbouring nodes of ```v```, this may be used to directly map the ```foreach neighbor w of v do``` line, reducing misses of neighbour nodes to zero:
-		```
-		int *adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
-		for(i = 0; i < noOfAdjacents; i++) {
-			w = adjacents[i];
+* Standard (```src/bitanes2.c```):
+	* Root node reads the graph and broadcast the data;
+	* The main loop (which iterates through every node) is partitioned in similar sizes to all nodes;
+	* Root node reduces the result and print the data to a file.
+* Master-Slave (```src/bitanes2b.c```):
+	* At least two MPI nodes are needed;
+	* Root node reads the graph and broadcast the data;
+	* Root node is responsible for deploying batches of the main loop to each slave node;
+	* Slave nodes wait for batches, process them and ask for more after completion;
+	* Root node reduces the result and print the data to a file.
 
-			/* Always hit */
-		}
-		```
-	* Linked queues and FIFOs HAVE tail pointer.
+The master-slave has an advantage of reducing load imbalance caused by the main loop. However, it is only beneficial on distributed machines. Resources contention on a single computer may mask any advantage of this approach.
 
-## Performance of each Optimisation Level
+## Performance
 
-Optimisations were driven according to results generated by ```gprof```, where the most time-consuming functions were adapted.
+All executions were performed on a Intel Xeon E5-1607. The sequential version (master branch) of this repository was used as baseline.
 
-* ***Level 0***:
-	* ***GCOV results (using data/big/er_1000_32_01.net):***
-		```
-		Each sample counts as 0.01 seconds.
-		  %   cumulative   self                self     total           
-		 time   seconds   seconds      calls  us/call  us/call  name    
-		 42.58      2.74     2.74    8817495     0.31     0.31  dlist_pushBack
-		 27.51      4.51     1.77 1000000000     0.00     0.00  graph_getEdge
-		 23.00      5.99     1.48                               main
-		  4.66      6.30     0.30      32474     9.25     9.25  graph_putEdge
-		  1.55      6.40     0.10    9817495     0.01     0.01  dlist_front
-		  0.39      6.42     0.03   10819495     0.00     0.00  dlist_isEmpty
-		  0.16      6.43     0.01    9817495     0.00     0.00  dlist_popFront
-		  0.16      6.44     0.01    1002000     0.01     0.01  dlist_destroy
-		  0.08      6.45     0.01                               dlist_swap
-		  0.00      6.45     0.00    1002000     0.00     0.00  dlist_create
-		  0.00      6.45     0.00    1000000     0.00     0.00  dlist_pushFront
-		  0.00      6.45     0.00          1     0.00     0.00  graph_create
-		  0.00      6.45     0.00          1     0.00     0.00  graph_destroy
-		  0.00      6.45     0.00          1     0.00     0.00  swapOrAddExtension
-		```
+* Sequential
 	* ***Execution times:***
-		* ***Small graph 1 (20 nodes, 36 edges, filename data/small/ba_20_4_03.net):*** 5 ms
-		* ***Small graph 2 (20 nodes, 31 edges, filename data/small/er_20_4_03.net):*** 4 ms
-		* ***Large graph 1 (1000 nodes, 1996 edges, filename data/big/ba_1000_4_01.net):*** 3512 ms
-		* ***Large graph 2 (2000 nodes, 31990 edges, filename data/big/er_2000_32_01.net):*** 48664 ms
-		* ***Large graph 3 (10000 nodes, 159744 edges, filename data/big/er_10000_32_01.net):*** --- ms
-* ***Level 1***:
-	* ***GCOV results (using data/big/er_1000_32_01.net):***
-		```
-		Each sample counts as 0.01 seconds.
-		  %   cumulative   self                self     total           
-		 time   seconds   seconds      calls  us/call  us/call  name    
-		 45.07      1.45     1.45 1000000000     0.00     0.00  graph_getEdge
-		 38.54      2.69     1.24                               main
-		  9.32      2.99     0.30      32474     9.25     9.25  graph_putEdge
-		  3.26      3.10     0.11    8817495     0.01     0.01  dlist_pushBack
-		  1.86      3.16     0.06    9817495     0.01     0.01  dlist_front
-		  1.71      3.21     0.06    9817495     0.01     0.01  dlist_popFront
-		  0.31      3.22     0.01   10819495     0.00     0.00  dlist_isEmpty
-		  0.00      3.22     0.00    1002000     0.00     0.00  dlist_create
-		  0.00      3.22     0.00    1002000     0.00     0.00  dlist_destroy
-		  0.00      3.22     0.00    1000000     0.00     0.00  dlist_pushFront
-		  0.00      3.22     0.00          1     0.00     0.00  graph_create
-		  0.00      3.22     0.00          1     0.00     0.00  graph_destroy
-		  0.00      3.22     0.00          1     0.00     0.00  swapOrAddExtension
-		```
+		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):***
+		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):***
+* MPI Standard (XXX nodes)
 	* ***Execution times:***
-		* ***Small graph 1 (20 nodes, 36 edges, filename data/small/ba_20_4_03.net):*** 5 ms
-		* ***Small graph 2 (20 nodes, 31 edges, filename data/small/er_20_4_03.net):*** 3 ms
-		* ***Large graph 1 (1000 nodes, 1996 edges, filename data/big/ba_1000_4_01.net):*** 2600 ms
-		* ***Large graph 2 (2000 nodes, 31990 edges, filename data/big/er_2000_32_01.net):*** 23000 ms
-		* ***Large graph 3 (10000 nodes, 159744 edges, filename data/big/er_10000_32_01.net):*** --- ms
-* ***Level 2***:
-	* ***GCOV results (using data/big/er_1000_32_01.net):***
-		```
-		Each sample counts as 0.01 seconds.
-		  %   cumulative   self              self     total           
-		 time   seconds   seconds    calls  ns/call  ns/call  name    
-		 37.53      0.09     0.09                             main
-		 22.93      0.15     0.06  8817495     6.24     6.24  dlist_pushBack
-		 16.68      0.19     0.04  1000000    40.03    40.03  graph_getAdjacents
-		  8.34      0.21     0.02  9817495     2.04     2.04  dlist_popFront
-		  4.17      0.22     0.01 10819495     0.92     0.92  dlist_isEmpty
-		  4.17      0.23     0.01  9817495     1.02     1.02  dlist_front
-		  4.17      0.24     0.01  1000000    10.01    10.01  dlist_pushFront
-		  2.08      0.24     0.01                             dlist_trim
-		  0.00      0.24     0.00  1002000     0.00     0.00  dlist_create
-		  0.00      0.24     0.00  1002000     0.00     0.00  dlist_destroy
-		  0.00      0.24     0.00    32474     0.00     0.00  graph_putEdge
-		  0.00      0.24     0.00        1     0.00     0.00  graph_create
-		  0.00      0.24     0.00        1     0.00     0.00  graph_destroy
-		  0.00      0.24     0.00        1     0.00     0.00  swapOrAddExtension
-		```
+		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):***
+		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):***
+	* ***Speedup:***
+		* ***Large graph 1:***
+		* ***Large graph 2:***
+* MPI Master-Slave (XXX nodes)
 	* ***Execution times:***
-		* ***Small graph 1 (20 nodes, 36 edges, filename data/small/ba_20_4_03.net):*** 5 ms
-		* ***Small graph 2 (20 nodes, 31 edges, filename data/small/er_20_4_03.net):*** 4 ms
-		* ***Large graph 1 (1000 nodes, 1996 edges, filename data/big/ba_1000_4_01.net):*** 190 ms
-		* ***Large graph 2 (2000 nodes, 31990 edges, filename data/big/er_2000_32_01.net):*** 2270 ms
-		* ***Large graph 3 (10000 nodes, 159744 edges, filename data/big/er_10000_32_01.net):*** 57010 ms
+		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):***
+		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):***
+	* ***Speedup:***
+		* ***Large graph 1:***
+		* ***Large graph 2:***
 
 ## File Structure
 
@@ -192,7 +124,8 @@ Optimisations were driven according to results generated by ```gprof```, where t
 	* ```list.h```: header of list/queue/FIFO data structure;
 * ```obj```: folder for object files (```.o```);
 * ```src```:
-	* ```bitanes2.c```: main function source;
+	* ```bitanes2.c```: main function source (standard version);
+	* ```bitanes2b.c```: main function source (master-slave version);
 	* ```graph.c```: source of graph data structure;
 	* ```list.c```: source of list/queue/FIFO data structure;
 * ```Makefile```: project makefile.

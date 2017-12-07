@@ -85,9 +85,7 @@ list_t *_list_create(unsigned int type) {
 	list->size = 0;
 	list->type = type;
 	list->head = NULL;
-#ifndef LIST_DISABLE_TAIL
 	list->tail = NULL;
-#endif
 	return list;
 }
 
@@ -132,9 +130,7 @@ void _list_trim(list_t **list, unsigned int n) {
 			}
 			else if((n - 1) == i) {
 				tmpPointer->next = NULL;
-#ifndef LIST_DISABLE_TAIL
 				(*list)->tail = tmpPointer;
-#endif
 			}
 
 			tmpPointer = tmpPointerNext;
@@ -153,7 +149,6 @@ void _list_trim(list_t **list, unsigned int n) {
 void _list_pushBack(list_t *list, int dval, double lfval, char *sval) {
 	/* List has elements */
 	if(list->head) {
-#ifndef LIST_DISABLE_TAIL
 		/* With tail pointer, there's no need to iterate through the whole list to pushBack */
 
 		elem_t *tmpPointer = malloc(sizeof(elem_t));
@@ -162,25 +157,12 @@ void _list_pushBack(list_t *list, int dval, double lfval, char *sval) {
 
 		list->tail->next = tmpPointer;
 		list->tail = tmpPointer;
-#else
-		elem_t *tmpPointer = list->head;
-
-		/* Iterate 'till the end of the list */
-		while(tmpPointer->next)
-			tmpPointer = tmpPointer->next;
-
-		tmpPointer->next = malloc(sizeof(elem_t));
-		tmpPointer->next->next = NULL;
-		ASSIGN(list->type, tmpPointer->next->val, dval, lfval, sval);
-#endif
 	}
 	/* List has no elements */
 	else {
 		list->head = malloc(sizeof(elem_t));
 		list->head->next = NULL;
-#ifndef LIST_DISABLE_TAIL
 		list->tail = list->head;
-#endif
 		ASSIGN(list->type, list->head->val, dval, lfval, sval);
 	}
 
@@ -199,10 +181,8 @@ void _list_popFront(list_t *list) {
 		list->head = tmpPointer;
 		(list->size)--;
 
-#ifndef LIST_DISABLE_TAIL
 		if(!(list->size))
 			list->tail = NULL;
-#endif
 	}
 }
 
@@ -219,10 +199,8 @@ void _list_pushFront(list_t *list, int dval, double lfval, char *sval) {
 
 	(list->size)++;
 
-#ifndef LIST_DISABLE_TAIL
 	if(1 == list->size)
 		list->tail = list->head;
-#endif
 }
 
 /**
@@ -238,18 +216,8 @@ elem_u _list_front(list_t *list) {
  * @note This is an internal function. Use the functions with defined types instead.
  */
 elem_u _list_back(list_t *list) {
-#ifndef LIST_DISABLE_TAIL
 	/* No need to iterate the whole list if we have a tail pointer */
 	return list->tail->val;
-#else
-	elem_t *tmpPointer = list->head;
-
-	/* Iterate through the whole list */
-	while(tmpPointer->next)
-		tmpPointer = tmpPointer->next;
-
-	return tmpPointer->val;
-#endif
 }
 
 /**
@@ -292,18 +260,14 @@ void _list_insert(list_t *list, unsigned int pos, int dval, double lfval, char *
 		else
 			list->head = tmpElem;
 
-#ifndef LIST_DISABLE_TAIL
 		if(pos == list->size)
 			list->tail = tmpElem;
-#endif
 	}
 	/* List has no elements */
 	else {
 		list->head = malloc(sizeof(elem_t));
 		list->head->next = NULL;
-#ifndef LIST_DISABLE_TAIL
 		list->tail = list->head;
-#endif
 		ASSIGN(list->type, list->head->val, dval, lfval, sval);
 	}
 

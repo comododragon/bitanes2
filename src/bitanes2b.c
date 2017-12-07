@@ -1,5 +1,5 @@
 /* ********************************************************************************************* */
-/* * Simple implementation for Brandes Betweenness Algorithm: bitanes2: MPI Version            * */
+/* * Simple implementation for Brandes Betweenness Algorithm: bitanes2: MPI Version 2          * */
 /* * Author: André Bannwart Perina                                                             * */
 /* * Algorithm: Brandes, Ulrik. "A faster algorithm for betweenness centrality."               * */
 /* *            Journal of mathematical sociology 25.2 (2001): 163-177.                        * */
@@ -30,6 +30,7 @@
 #include "list.h"
 
 #define MAX_STR_SZ 256
+#define BATCH_SIZE 100
 
 /**
  * @brief Swap the extension of a file (or add it if the file has none.
@@ -66,16 +67,18 @@ char *swapOrAddExtension(char *inputFilename, char *extension) {
 int main(int argc, char *argv[]) {
 	MPI_Init(&argc, &argv);
 	int mpiTotal, mpiRank;
+	MPI_Status mpiStatus;
 
 	/* Auxiliary variables */
 	int i;
-	int mpiChunkStart, mpiChunkStop;
+	int mpiSlaveNode, mpiBatchStart, mpiBatchEnd;
 	char *inputFilename;
 	char *outputFilename = NULL;
 	FILE *inputFile = NULL;
 	FILE *outputFile = NULL;
 	unsigned int graphSizes[2];
 	graph_t *graph = NULL;
+	unsigned int taskCount;
 	/* Variables named according to the algorithm in Brandes Algorithm */
 	double *cb = NULL;
 	double *cbReduced = NULL;
@@ -93,12 +96,15 @@ int main(int argc, char *argv[]) {
 	ASSERT_CALL(MPI_SUCCESS == MPI_Comm_size(MPI_COMM_WORLD, &mpiTotal), fprintf(stderr, "Error: MPI error\n"));
 	ASSERT_CALL(MPI_SUCCESS == MPI_Comm_rank(MPI_COMM_WORLD, &mpiRank), fprintf(stderr, "Error: MPI error\n"));
 
-	/* Execute on root node only */
+	/* Master node */
 	if(!mpiRank) {
 		/* Check if command line arguments were passed correctly */
 		ASSERT_CALL(2 == argc, fprintf(stderr, "Usage: %s INPUTFILE\n", argv[0]));
 		inputFilename = argv[1];
 		outputFilename = swapOrAddExtension(inputFilename, "btw");
+
+		/* Since this is a master-slave approach, at least two nodes are needed */
+		ASSERT_CALL(mpiTotal > 1, fprintf(stderr, "Error: run with at least two MPI processes.\n"));
 
 		/* Open input and output files and check their existence */
 		inputFile = fopen(inputFilename, "r");
@@ -124,8 +130,22 @@ int main(int argc, char *argv[]) {
 			graph_putEdge(graph, orig, dest);
 			graph_putEdge(graph, dest, orig);
 		}
+
+		/* Wait for a request from one of the slave nodes */
+		for(taskCount = 0; taskCount < graphSizes[0]; taskCount += BATCH_SIZE) {
+			MPI_Recv(&mpiSlaveNode, 1, MPI_INT, MPI_ANY_SOURCE, 1, MPI_COMM_WORLD, &mpiStatus);
+			/* Send a task of size BATCH_SIZE */
+			MPI_Send(&taskCount, 1, MPI_INT, mpiSlaveNode, 2, MPI_COMM_WORLD);
+		}
+
+		/* All tasks are over. Send -1 to all slave nodes. This will finish their execution */
+		taskCount = -1;
+		for(i = 1; i < mpiTotal; i++)
+			MPI_Send(&taskCount, 1, MPI_INT, i, 2, MPI_COMM_WORLD);
+
+		cb = calloc(graphSizes[0], sizeof(double));
 	}
-	/* Execute on non-root nodes */
+	/* Slave nodes */
 	else {
 		/* Read graph sizes coming through broadcast */
 		MPI_Bcast(graphSizes, 2, MPI_INT, 0, MPI_COMM_WORLD);
@@ -139,91 +159,94 @@ int main(int argc, char *argv[]) {
 			graph_putEdge(graph, orig, dest);
 			graph_putEdge(graph, dest, orig);
 		}
-	}
 
-	cb = calloc(graphSizes[0], sizeof(double));
-	sigma = malloc(graphSizes[0] * sizeof(int));
-	d = malloc(graphSizes[0] * sizeof(int));
-	delta = malloc(graphSizes[0] * sizeof(double));
+		cb = calloc(graphSizes[0], sizeof(double));
+		sigma = malloc(graphSizes[0] * sizeof(int));
+		d = malloc(graphSizes[0] * sizeof(int));
+		delta = malloc(graphSizes[0] * sizeof(double));
 
-	/* Partition the problem into chunks of graph nodes of similar sizes */
-	int chunkSize = graphSizes[0] / mpiTotal;
-	int chunkSizeRem = graphSizes[0] % mpiTotal;
-	if(mpiRank < chunkSizeRem) {
-		mpiChunkStart = mpiRank * (chunkSize + 1);
-		mpiChunkStop = mpiChunkStart + chunkSize + 1;
-	}
-	else {
-		mpiChunkStart = (mpiRank * chunkSize) + chunkSizeRem;
-		mpiChunkStop = mpiChunkStart + chunkSize;
-	}
+		/* Execute until no more tasks are available */
+		while(1) {
+			/* Send this node's ID to master node */
+			MPI_Send(&mpiRank, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);
+			/* Wait for an answer with a batch to process */
+			MPI_Recv(&mpiBatchStart, 1, MPI_INT, 0, 2, MPI_COMM_WORLD, &mpiStatus);
 
-	/* Beginning of Brandes Algorithm */
+			/* Received task is -1. It's time to go home and rest */
+			if(-1 == mpiBatchStart)
+				break;
 
-	P = calloc(graphSizes[0], sizeof(list_t *));
+			/* Beginning of Brandes Algorithm */
 
-	/* Each node will work on its chunk */
-	for(s = mpiChunkStart; s < mpiChunkStop; s++) {
-		S = dlist_create();
-		for(w = 0; w < graphSizes[0]; w++)
-			P[w] = dlist_create();
-		for(t = 0; t < graphSizes[0]; t++) {
-			sigma[t] = 0;
-			d[t] = -1;
-		}
-		sigma[s] = 1;
-		d[s] = 0;
-		Q = dlist_create();
+			P = calloc(graphSizes[0], sizeof(list_t *));
 
-		dlist_pushBack(Q, s);
+			/* If this is the last batch, it may be smaller than BATCH_SIZE */
+			mpiBatchEnd = ((mpiBatchStart + BATCH_SIZE) >= graphSizes[0])? graphSizes[0] : (mpiBatchStart + BATCH_SIZE);
 
-		while(!dlist_isEmpty(Q)) {
-			v = dlist_front(Q);
-			dlist_popFront(Q);
-			dlist_pushFront(S, v);
+			/* Process received batch */
+			for(s = mpiBatchStart; s < mpiBatchEnd; s++) {
+				S = dlist_create();
+				for(w = 0; w < graphSizes[0]; w++)
+					P[w] = dlist_create();
+				for(t = 0; t < graphSizes[0]; t++) {
+					sigma[t] = 0;
+					d[t] = -1;
+				}
+				sigma[s] = 1;
+				d[s] = 0;
+				Q = dlist_create();
 
-			/* Smarter way of getting node neighbours: get all nodes w which are neighbours of v, no checking necessary */
-			adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
-			for(i = 0; i < noOfAdjacents; i++) {
-				w = adjacents[i];
-				if(d[w] < 0) {
-					dlist_pushBack(Q, w);
-					d[w] = d[v] + 1;
+				dlist_pushBack(Q, s);
+
+				while(!dlist_isEmpty(Q)) {
+					v = dlist_front(Q);
+					dlist_popFront(Q);
+					dlist_pushFront(S, v);
+
+					/* Smarter way of getting node neighbours: get all nodes w which are neighbours of v, no checking necessary */
+					adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
+					for(i = 0; i < noOfAdjacents; i++) {
+						w = adjacents[i];
+						if(d[w] < 0) {
+							dlist_pushBack(Q, w);
+							d[w] = d[v] + 1;
+						}
+
+						if((d[v] + 1) == d[w]) {
+							sigma[w] = sigma[w] + sigma[v];
+							dlist_pushBack(P[w], v);
+						}
+					}
 				}
 
-				if((d[v] + 1) == d[w]) {
-					sigma[w] = sigma[w] + sigma[v];
-					dlist_pushBack(P[w], v);
+				for(v = 0; v < graphSizes[0]; v++)
+					delta[v] = 0;
+
+				while(!dlist_isEmpty(S)) {
+					w = dlist_front(S);
+					dlist_popFront(S);
+
+					while(!dlist_isEmpty(P[w])) {
+						v = dlist_front(P[w]);
+						dlist_popFront(P[w]);
+
+						delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
+					}
+
+					if(w != s)
+						cb[w] = cb[w] + delta[w];
 				}
+
+				dlist_destroy(&Q);
+				Q = NULL;
+				for(w = 0; w < graphSizes[0]; w++) {
+					dlist_destroy(&P[w]);
+					P[w] = NULL;
+				}
+				dlist_destroy(&S);
+				S = NULL;
 			}
 		}
-
-		for(v = 0; v < graphSizes[0]; v++)
-			delta[v] = 0;
-
-		while(!dlist_isEmpty(S)) {
-			w = dlist_front(S);
-			dlist_popFront(S);
-
-			while(!dlist_isEmpty(P[w])) {
-				v = dlist_front(P[w]);
-				dlist_popFront(P[w]);
-
-				delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
-			}
-
-			if(w != s)
-				cb[w] = cb[w] + delta[w];
-		}
-
-		dlist_destroy(&Q);
-		Q = NULL;
-		for(w = 0; w < graphSizes[0]; w++) {
-			dlist_destroy(&P[w]);
-			P[w] = NULL;
-		}
-		dlist_destroy(&S);
-		S = NULL;
 	}
 
 	/* Reduce the cb[] array of all nodes. Result is the final betweenness value */
