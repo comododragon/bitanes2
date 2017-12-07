@@ -1,5 +1,5 @@
 /* ********************************************************************************************* */
-/* * Simple implementation for Brandes Betweenness Algorithm: bitanes2                         * */
+/* * Simple implementation for Brandes Betweenness Algorithm: bitanes2: OpenMP Version         * */
 /* * Author: André Bannwart Perina                                                             * */
 /* * Algorithm: Brandes, Ulrik. "A faster algorithm for betweenness centrality."               * */
 /* *            Journal of mathematical sociology 25.2 (2001): 163-177.                        * */
@@ -67,6 +67,7 @@ int main(int argc, char *argv[]) {
 	int i;
 	char *inputFilename;
 	char *outputFilename = NULL;
+	/* If no number of threads is passed as argument, we will use omp_get_num_procs() */
 	int numThreads = omp_get_num_procs();
 	FILE *inputFile = NULL;
 	FILE *outputFile = NULL;
@@ -104,6 +105,7 @@ int main(int argc, char *argv[]) {
 
 	/* Beginning of Brandes Algorithm */
 
+/* Start of parallel section */
 #pragma omp parallel default(none) private(i) shared(n, graph, cb) num_threads(numThreads)
 	{
 		int t, s, v, w;
@@ -116,6 +118,8 @@ int main(int argc, char *argv[]) {
 		int *adjacents;
 
 		list_t **P = calloc(n, sizeof(list_t *));
+
+/* Dynamic scheduling is preferred due to imbalance between iterations */
 #pragma omp for schedule(dynamic)
 		for(s = 0; s < n; s++) {
 			S = dlist_create();
@@ -167,6 +171,7 @@ int main(int argc, char *argv[]) {
 				}
 	
 				if(w != s) {
+/* Critical section */
 #pragma omp atomic
 					cb[w] += delta[w];
 				}
@@ -181,6 +186,9 @@ int main(int argc, char *argv[]) {
 			dlist_destroy(&S);
 			S = NULL;
 		}
+
+		if(Q)
+			dlist_destroy(&Q);
 
 		if(P) {
 			for(i = 0; i < n; i++) {
