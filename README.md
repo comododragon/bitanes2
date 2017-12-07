@@ -36,13 +36,13 @@ git submodule update --init --recursive
 make bin/bitanes2
 ```
 
-3a. Execute, passing as argument the input graph, e.g.:
+3. (a) Execute, passing as argument the input graph, e.g.:
 
 ```
 ./bin/bitanes2 data/small/er_20_4_03.net
 ```
 
-3b. By default, OpenMP will use the number of processors (```omp_get_num_procs()```) as number of threads. You can override this setting by passing the number of threads as argument:
+3. (b) By default, OpenMP will use the number of processors (```omp_get_num_procs()```) as number of threads. You can override this setting by passing the number of threads as argument:
 
 ```
 ./bin/bitanes2 data/small/er_20_4_03.net 8
