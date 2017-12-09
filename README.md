@@ -43,7 +43,7 @@ make bin/bitanes2
 ./bin/bitanes2 data/small/er_20_4_03.net
 ```
 
-3. (b) By default, OpenMP will use 2 threads + the master thread. You can override this setting by passing the number of threads as argument:
+3. (b) By default, Pthreads will use 2 threads + the master thread. You can override this setting by passing the number of threads as argument:
 
 ```
 ./bin/bitanes2 data/small/er_20_4_03.net 8
@@ -73,7 +73,7 @@ All executions were performed on a Intel Xeon E5-1607. The sequential version (m
 	* ***Execution times:***
 		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):*** 2.535 s
 		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):*** 61.4 s
-* Pthreads (XX threads + master thread)
+* Pthreads (4 threads + master thread)
 	* ***Execution times:***
 		* ***Large graph 1 (2000 nodes, 31744 edges, filename data/big/ba_2000_32_01.net):*** 0.850 s
 		* ***Large graph 2 (10000 nodes, 159744 edges, filename data/big/ba_10000_32_00.net):*** 32.954 s
