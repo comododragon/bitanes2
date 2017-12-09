@@ -34,11 +34,6 @@ void graph_create(graph_t **graph, unsigned int n, unsigned int m) {
 	(*graph)->n = n;
 	(*graph)->adj = malloc(n * sizeof(int *));
 
-#ifdef GRAPH_USE_ADJ_MATRIX
-	/* Create adjacency matrix for a totally disconnected graph */
-	for(i = 0; i < n; i++)
-		(*graph)->adj[i] = calloc(n, sizeof(int));
-#else
 	/* Adjacency lists for each node are allocated on the fly */
 	for(i = 0; i < n; i++)
 		(*graph)->adj[i] = NULL;
@@ -46,18 +41,12 @@ void graph_create(graph_t **graph, unsigned int n, unsigned int m) {
 	/* Chunk size of the adjacency lists: mallocs on the adjacency lists are made by chunks */
 	/* Here we assume that every node will have a similar degree */
 	(*graph)->chunkSz = (int) ceilf(m / (float) n);
-#endif
 }
 
 /**
  * @brief Connect two nodes.
  */
 void graph_putEdge(graph_t *graph, unsigned int orig, unsigned int dest) {
-#ifdef GRAPH_USE_ADJ_MATRIX
-	/* If adjacency matrix is used, connecting two nodes is done simply by putting 1 on the respective matrix element */
-	if(graph)
-		graph->adj[orig][dest] = 1;
-#else
 	if(graph) {
 		/* Adjacency list for this node has already been created */
 		if(graph->adj[orig]) {
@@ -82,17 +71,12 @@ void graph_putEdge(graph_t *graph, unsigned int orig, unsigned int dest) {
 		graph->adj[orig][graph->adj[orig][1] + 2] = dest;
 		(graph->adj[orig][1])++;
 	}
-#endif
 }
 
 /**
  * @brief Check if two nodes are connected.
  */
 int graph_getEdge(graph_t *graph, unsigned int orig, unsigned int dest) {
-#ifdef GRAPH_USE_ADJ_MATRIX
-	/* Piece of cake for adjacency matrix */
-	return graph? graph->adj[orig][dest] : 0;
-#else
 	int i;
 
 	/* Iterate through the orig's adjacency list trying to find if the dest node is present */
@@ -107,10 +91,8 @@ int graph_getEdge(graph_t *graph, unsigned int orig, unsigned int dest) {
 	else {
 		return 0;
 	}
-#endif
 }
 
-#ifndef GRAPH_USE_ADJ_MATRIX
 /**
  * @brief Get the adjacency list for a given node.
  */
@@ -125,7 +107,6 @@ int *graph_getAdjacents(graph_t *graph, unsigned int orig, unsigned int *noOfAdj
 	*noOfAdjacents = 0;
 	return NULL;
 }
-#endif
 
 /**
  * @brief Destroy a graph; free memory.

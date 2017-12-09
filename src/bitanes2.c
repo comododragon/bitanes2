@@ -1,5 +1,5 @@
 /* ********************************************************************************************* */
-/* * Simple implementation for Brandes Betweenness Algorithm: bitanes2                         * */
+/* * Simple implementation for Brandes Betweenness Algorithm: bitanes2: PThreads Version       * */
 /* * Author: André Bannwart Perina                                                             * */
 /* * Algorithm: Brandes, Ulrik. "A faster algorithm for betweenness centrality."               * */
 /* *            Journal of mathematical sociology 25.2 (2001): 163-177.                        * */
@@ -19,10 +19,12 @@
 /* ********************************************************************************************* */
 
 #include <errno.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "brandes.h"
 #include "common/common.h"
 #include "graph.h"
 #include "list.h"
@@ -66,28 +68,25 @@ int main(int argc, char *argv[]) {
 	int i;
 	char *inputFilename;
 	char *outputFilename = NULL;
+	/* If no number of threads is passed as argument, we will use omp_get_num_procs() */
+	int numThreads = 2;
 	FILE *inputFile = NULL;
 	FILE *outputFile = NULL;
+	unsigned int chunkSize, chunkSizeRem;
+	threadpack_t *packs = NULL;
+	pthread_t *threads = NULL;
 	/* Variables named according to the algorithm in Brandes Algorithm */
 	unsigned int n, m;
 	graph_t *graph = NULL;
 	double *cb = NULL;
-	int t, s, v, w;
-	list_t *S = NULL;
-	list_t **P = NULL;
-	int *sigma = NULL;
-	int *d = NULL;
-	double *delta = NULL;
-	list_t *Q = NULL;
-#ifdef GRAPH_USE_GET_ADJACENTS
-	unsigned int noOfAdjacents;
-	int *adjacents;
-#endif
+	double *cbReduced = NULL;
 
 	/* Check if command line arguments were passed correctly */
-	ASSERT_CALL(2 == argc, fprintf(stderr, "Usage: %s INPUTFILE\n", argv[0]));
+	ASSERT_CALL((2 == argc) || (3 == argc), fprintf(stderr, "Usage: %s INPUTFILE [NUMTHREADS]\n", argv[0]));
 	inputFilename = argv[1];
 	outputFilename = swapOrAddExtension(inputFilename, "btw");
+	if(3 == argc)
+		numThreads = atoi(argv[2]);
 
 	/* Open input and output files and check their existence */
 	inputFile = fopen(inputFilename, "r");
@@ -99,10 +98,8 @@ int main(int argc, char *argv[]) {
 	fscanf(inputFile, "%d", &n);
 	fscanf(inputFile, "%d", &m);
 	graph_create(&graph, n, m);
-	cb = calloc(n, sizeof(double));
-	sigma = malloc(n * sizeof(int));
-	d = malloc(n * sizeof(int));
-	delta = malloc(n * sizeof(double));
+	cb = calloc(n * numThreads, sizeof(double));
+	cbReduced = calloc(n,  sizeof(double));
 
 	/* Read edges from file */
 	unsigned int orig, dest;
@@ -112,106 +109,50 @@ int main(int argc, char *argv[]) {
 		graph_putEdge(graph, dest, orig);
 	}
 
-	/* Beginning of Brandes Algorithm */
+	/* Calculate chunk sizes for each thread and allocate threads stuff */
+	chunkSize = n / numThreads;
+	chunkSizeRem = n % numThreads;
+	packs = malloc(numThreads * sizeof(threadpack_t));
+	threads = malloc(numThreads * sizeof(pthread_t));
 
-	P = calloc(n, sizeof(list_t *));
-	for(s = 0; s < n; s++) {
-		S = dlist_create();
-		for(w = 0; w < n; w++)
-			P[w] = dlist_create();
-		for(t = 0; t < n; t++) {
-			sigma[t] = 0;
-			d[t] = -1;
-		}
-		sigma[s] = 1;
-		d[s] = 0;
-		Q = dlist_create();
+	/* Prepare and dispatch threads */
+	for(i = 0; i < numThreads; i++) {
+		/* Prepare the data pack for each thread */
+		packs[i].n = n;
+		packs[i].graph = graph;
+		packs[i].cb = cb;
+		packs[i].chunkSize = chunkSize;
+		packs[i].chunkSizeRem = chunkSizeRem;
+		packs[i].threadId = i;
 
-		dlist_pushBack(Q, s);
-
-		while(!dlist_isEmpty(Q)) {
-			v = dlist_front(Q);
-			dlist_popFront(Q);
-			dlist_pushFront(S, v);
-
-#ifdef GRAPH_USE_GET_ADJACENTS
-			/* Smarter way of getting node neighbours: get all nodes w which are neighbours of v, no checking necessary */
-			adjacents = graph_getAdjacents(graph, v, &noOfAdjacents);
-			for(i = 0; i < noOfAdjacents; i++) {
-				w = adjacents[i];
-				{
-#else
-			/* Naive way of getting node neighbours: Get all nodes w and check which are neighbours of v */
-			for(w = 0; w < n; w++) {
-				if(graph_getEdge(graph, v, w)) {
-#endif
-					if(d[w] < 0) {
-						dlist_pushBack(Q, w);
-						d[w] = d[v] + 1;
-					}
-
-					if((d[v] + 1) == d[w]) {
-						sigma[w] = sigma[w] + sigma[v];
-						dlist_pushBack(P[w], v);
-					}
-				}
-			}
-		}
-
-		for(v = 0; v < n; v++)
-			delta[v] = 0;
-
-		while(!dlist_isEmpty(S)) {
-			w = dlist_front(S);
-			dlist_popFront(S);
-
-			while(!dlist_isEmpty(P[w])) {
-				v = dlist_front(P[w]);
-				dlist_popFront(P[w]);
-
-				delta[v] = delta[v] + ((sigma[v] / ((double) sigma[w])) * (1 + delta[w]));
-			}
-
-			if(w != s)
-				cb[w] = cb[w] + delta[w];
-		}
-
-		dlist_destroy(&Q);
-		Q = NULL;
-		for(w = 0; w < n; w++) {
-			dlist_destroy(&P[w]);
-			P[w] = NULL;
-		}
-		dlist_destroy(&S);
-		S = NULL;
+		/* Create i-th thread */
+		int threadRet = pthread_create(&threads[i], NULL, brandes, &packs[i]);
+		ASSERT_CALL(0 == threadRet, fprintf(stderr, "Error: pthread_create() failed\n"));
 	}
 
-	/* At last, print results */
-	for(v = 0; v < n; v++)
-		fprintf(outputFile, "%lf\n", cb[v] / 2.0);
+	/* Wait for all threads to finish */
+	for(i = 0; i < numThreads; i++)
+		pthread_join(threads[i], NULL);
+
+	/* At last, reduce and print results */
+	for(i = 0; i < n; i++) {
+		int j;
+		for(j = 0; j < numThreads; j++)
+			cbReduced[i] += cb[i + (n * j)];
+
+		fprintf(outputFile, "%lf\n", cbReduced[i] / 2.0);
+	}
 
 _err:
 
-	if(delta)
-		free(delta);
+	if(threads)
+		free(threads);
 
-	if(Q)
-		dlist_destroy(&Q);
+	if(packs)
+		free(packs);
 
-	if(d)
-		free(d);
-
-	if(sigma)
-		free(sigma);
-
-	if(P) {
-		for(i = 0; i < n; i++) {
-			if(P[i])
-				dlist_destroy(&P[i]);
-		}
-
-		free(P);
-	}
+	if(cbReduced)
+		free(cbReduced);
 
 	if(cb)
 		free(cb);
